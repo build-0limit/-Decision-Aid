@@ -104,7 +104,7 @@ async function callLLMApi(question, config) {
 /**
  * 调用 OpenAI API
  */
-async function callOpenAI(question, systemPrompt, config) {
+export async function callOpenAI(question, systemPrompt, config) {
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -135,7 +135,7 @@ async function callOpenAI(question, systemPrompt, config) {
 /**
  * 调用 Anthropic API
  */
-async function callAnthropic(question, systemPrompt, config) {
+export async function callAnthropic(question, systemPrompt, config) {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -174,7 +174,7 @@ async function callAnthropic(question, systemPrompt, config) {
 /**
  * 调用自定义 API
  */
-async function callCustomApi(question, systemPrompt, config) {
+export async function callCustomApi(question, systemPrompt, config) {
   const response = await fetch(config.endpoint, {
     method: 'POST',
     headers: {
