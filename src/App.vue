@@ -32,10 +32,31 @@
           :disabled="loading || !userQuestion.trim()"
           class="primary-btn"
         >
-          <span v-if="loading">生成中...</span>
+          <span v-if="loading" class="loading-content">
+            <span class="spinner"></span>
+            <span>AI 正在思考...</span>
+          </span>
           <span v-else>生成决策树</span>
         </button>
       </div>
+      
+      <!-- 生成决策树加载动画 -->
+      <transition name="fade">
+        <div v-if="loading" class="loading-overlay">
+          <div class="loading-animation">
+            <div class="brain-icon">🧠</div>
+            <div class="loading-dots">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+            <p class="loading-text">AI 正在为你生成决策树...</p>
+            <div class="loading-bar">
+              <div class="loading-bar-fill"></div>
+            </div>
+          </div>
+        </div>
+      </transition>
     </div>
 
     <!-- 决策树阶段 -->
@@ -64,16 +85,35 @@
             :key="index"
             @click="selectOption(option)"
             class="option-btn"
+            :disabled="loading"
           >
             <span class="option-icon">{{ getOptionIcon(index) }}</span>
             <span class="option-text">{{ option.text }}</span>
           </button>
         </div>
 
-        <button @click="goBack" v-if="history.length > 0" class="back-btn">
+        <button @click="goBack" v-if="history.length > 0" class="back-btn" :disabled="loading">
           ← 返回上一步
         </button>
       </div>
+      
+      <!-- 动态生成下一层加载动画 -->
+      <transition name="fade">
+        <div v-if="loading" class="loading-overlay">
+          <div class="loading-animation">
+            <div class="tree-icon">🌳</div>
+            <div class="loading-dots">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+            <p class="loading-text">正在生成下一层决策...</p>
+            <div class="loading-bar">
+              <div class="loading-bar-fill"></div>
+            </div>
+          </div>
+        </div>
+      </transition>
     </div>
 
     <!-- 结果阶段 -->
@@ -110,7 +150,10 @@
         <!-- 分享功能 -->
         <div class="share-section">
           <button @click="shareDecision" class="share-btn" :disabled="shareLoading">
-            <span v-if="shareLoading">生成中...</span>
+            <span v-if="shareLoading" class="loading-content">
+              <span class="spinner"></span>
+              <span>正在生成分享链接...</span>
+            </span>
             <span v-else>🔗 分享决策树</span>
           </button>
           
@@ -446,7 +489,13 @@ async function shareDecision() {
 
     const data = await response.json()
     const baseUrl = window.location.origin
-    shareLink.value = `${baseUrl}/share/${data.code}`
+    const link = `${baseUrl}/share/${data.code}`
+    
+    // 延迟展示链接，确保数据写入同步成功
+    // 使用渐进式延迟提升用户体验
+    await new Promise(resolve => setTimeout(resolve, 1500))
+    
+    shareLink.value = link
   } catch (error) {
     alert('分享失败：' + error.message)
     console.error(error)
@@ -483,7 +532,7 @@ async function loadSharedDecision(code) {
     const response = await fetch(`/api/shares/${code}`)
     
     if (!response.ok) {
-      throw new Error('分享不存在或已过期')
+      throw new Error('分享不存在/已过期/还未同步成功')
     }
 
     const data = await response.json()
@@ -1088,6 +1137,163 @@ function getProviderName(provider) {
   color: #666;
   text-align: center;
   margin: 0;
+}
+
+/* 加载动画 */
+.loading-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 加载覆盖层 */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.loading-animation {
+  background: white;
+  border-radius: 24px;
+  padding: 50px 60px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  text-align: center;
+  max-width: 400px;
+  animation: scaleIn 0.3s ease-out;
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.brain-icon,
+.tree-icon {
+  font-size: 4rem;
+  margin-bottom: 20px;
+  animation: bounce 1.5s ease-in-out infinite;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-15px);
+  }
+}
+
+.loading-dots {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 50%;
+  animation: dotPulse 1.4s ease-in-out infinite;
+}
+
+.dot:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes dotPulse {
+  0%, 80%, 100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+}
+
+.loading-text {
+  font-size: 1.1rem;
+  color: #333;
+  font-weight: 600;
+  margin-bottom: 25px;
+}
+
+.loading-bar {
+  width: 100%;
+  height: 6px;
+  background: #e0e0e0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.loading-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 50%, #667eea 100%);
+  background-size: 200% 100%;
+  border-radius: 3px;
+  animation: loadingProgress 1.5s ease-in-out infinite;
+}
+
+@keyframes loadingProgress {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* 淡入淡出过渡 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 
 .shared-section {
