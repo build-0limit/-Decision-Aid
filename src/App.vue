@@ -1,0 +1,732 @@
+<template>
+  <div class="app-container">
+    <div class="header">
+      <div class="header-content">
+        <div>
+          <h1>🧠 智能决策助手</h1>
+          <p class="subtitle">让AI帮你做出更明智的选择</p>
+        </div>
+        <button class="config-btn" @click="openConfig" title="API 配置">
+          <span class="config-icon">⚙️</span>
+          <span class="config-text">配置</span>
+        </button>
+      </div>
+      <div v-if="apiConfig.provider !== 'mock'" class="api-status">
+        <span class="status-dot"></span>
+        <span class="status-text">{{ getProviderName(apiConfig.provider) }}</span>
+      </div>
+    </div>
+
+    <!-- 输入阶段 -->
+    <div v-if="stage === 'input'" class="input-section">
+      <div class="input-card">
+        <label for="question">请输入你的决策问题：</label>
+        <textarea
+          id="question"
+          v-model="userQuestion"
+          placeholder="例如：我应该选择哪个城市工作？北京、上海还是深圳？"
+          rows="4"
+        ></textarea>
+        <button 
+          @click="generateDecisionTree" 
+          :disabled="loading || !userQuestion.trim()"
+          class="primary-btn"
+        >
+          <span v-if="loading">生成中...</span>
+          <span v-else>生成决策树</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 决策树阶段 -->
+    <div v-if="stage === 'decision'" class="decision-section">
+      <div class="progress-bar">
+        <div class="progress-fill" :style="{ width: progressPercentage + '%' }"></div>
+      </div>
+
+      <!-- 树形可视化 -->
+      <DecisionTreeVisualization
+        :tree-data="decisionTree"
+        :current-node-id="currentNodeId"
+        :visited-nodes="visitedNodeIds"
+        @node-click="handleTreeNodeClick"
+      />
+      
+      <div class="decision-card">
+        <div class="question-header">
+          <span class="step-indicator">步骤 {{ currentStep + 1 }} / {{ totalSteps }}</span>
+          <h2>{{ currentNode.question }}</h2>
+        </div>
+
+        <div class="options-container">
+          <button
+            v-for="(option, index) in currentNode.options"
+            :key="index"
+            @click="selectOption(option)"
+            class="option-btn"
+          >
+            <span class="option-icon">{{ getOptionIcon(index) }}</span>
+            <span class="option-text">{{ option.text }}</span>
+          </button>
+        </div>
+
+        <button @click="goBack" v-if="history.length > 0" class="back-btn">
+          ← 返回上一步
+        </button>
+      </div>
+    </div>
+
+    <!-- 结果阶段 -->
+    <div v-if="stage === 'result'" class="result-section">
+      <!-- 最终树形可视化 -->
+      <DecisionTreeVisualization
+        :tree-data="decisionTree"
+        :current-node-id="currentNodeId"
+        :visited-nodes="visitedNodeIds"
+      />
+
+      <div class="result-card">
+        <div class="result-icon">🎯</div>
+        <h2>决策结果</h2>
+        <div class="result-content">
+          <p>{{ finalResult }}</p>
+        </div>
+        
+        <div class="result-path">
+          <h3>你的决策路径：</h3>
+          <div class="path-steps">
+            <div 
+              v-for="(step, index) in decisionPath" 
+              :key="index" 
+              class="path-step"
+              :style="{ '--index': index }"
+            >
+              <span class="path-number">{{ index + 1 }}</span>
+              <span class="path-text">{{ step }}</span>
+            </div>
+          </div>
+        </div>
+
+        <button @click="restart" class="primary-btn">
+          开始新的决策
+        </button>
+      </div>
+    </div>
+
+    <!-- 配置模态框 -->
+    <ConfigModal
+      :show="showConfigModal"
+      :config="apiConfig"
+      @close="showConfigModal = false"
+      @save="saveConfig"
+    />
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import { generateDecisionTreeFromLLM, setApiConfig, getApiConfig } from './services/llm'
+import DecisionTreeVisualization from './components/DecisionTreeVisualization.vue'
+import ConfigModal from './components/ConfigModal.vue'
+
+const stage = ref('input') // 'input', 'decision', 'result'
+const userQuestion = ref('')
+const loading = ref(false)
+const decisionTree = ref(null)
+const currentNode = ref(null)
+const currentNodeId = ref('node-0')
+const visitedNodeIds = ref([])
+const history = ref([])
+const decisionPath = ref([])
+const finalResult = ref('')
+const currentStep = ref(0)
+const showConfigModal = ref(false)
+const apiConfig = ref(getApiConfig())
+
+const totalSteps = computed(() => {
+  if (!decisionTree.value) return 0
+  return estimateTreeDepth(decisionTree.value)
+})
+
+const progressPercentage = computed(() => {
+  if (totalSteps.value === 0) return 0
+  return Math.min((currentStep.value / totalSteps.value) * 100, 100)
+})
+
+function estimateTreeDepth(node, depth = 0) {
+  if (!node.options || node.options.length === 0) return depth
+  const maxDepth = Math.max(...node.options.map(opt => 
+    opt.next ? estimateTreeDepth(opt.next, depth + 1) : depth + 1
+  ))
+  return maxDepth
+}
+
+async function generateDecisionTree() {
+  loading.value = true
+  try {
+    decisionTree.value = await generateDecisionTreeFromLLM(userQuestion.value)
+    currentNode.value = decisionTree.value
+    currentNodeId.value = 'node-0'
+    visitedNodeIds.value = ['node-0']
+    stage.value = 'decision'
+    currentStep.value = 0
+  } catch (error) {
+    alert('生成决策树失败，请重试')
+    console.error(error)
+  } finally {
+    loading.value = false
+  }
+}
+
+function selectOption(option) {
+  decisionPath.value.push(option.text)
+  currentStep.value++
+  
+  if (option.next) {
+    history.value.push({ node: currentNode.value, nodeId: currentNodeId.value })
+    currentNode.value = option.next
+    
+    // 计算新节点ID
+    const newNodeId = calculateNodeId(option)
+    currentNodeId.value = newNodeId
+    visitedNodeIds.value.push(newNodeId)
+  } else if (option.result) {
+    finalResult.value = option.result
+    const resultNodeId = calculateNodeId(option)
+    currentNodeId.value = resultNodeId
+    visitedNodeIds.value.push(resultNodeId)
+    
+    // 延迟显示结果，让用户看到最终节点的动画
+    setTimeout(() => {
+      stage.value = 'result'
+    }, 800)
+  }
+}
+
+function calculateNodeId(option) {
+  // 简单的节点ID生成策略
+  return `node-${visitedNodeIds.value.length}`
+}
+
+function goBack() {
+  if (history.value.length > 0) {
+    const previous = history.value.pop()
+    currentNode.value = previous.node
+    currentNodeId.value = previous.nodeId
+    visitedNodeIds.value.pop()
+    decisionPath.value.pop()
+    currentStep.value--
+  }
+}
+
+function restart() {
+  stage.value = 'input'
+  userQuestion.value = ''
+  decisionTree.value = null
+  currentNode.value = null
+  currentNodeId.value = 'node-0'
+  visitedNodeIds.value = []
+  history.value = []
+  decisionPath.value = []
+  finalResult.value = ''
+  currentStep.value = 0
+}
+
+function handleTreeNodeClick(node) {
+  // 可以添加点击树节点的交互逻辑
+  console.log('Tree node clicked:', node)
+}
+
+// 打开配置模态框
+function openConfig() {
+  showConfigModal.value = true
+}
+
+// 保存配置
+function saveConfig(config) {
+  setApiConfig(config)
+  apiConfig.value = config
+  showConfigModal.value = false
+}
+
+// 初始化时加载配置
+onMounted(() => {
+  apiConfig.value = getApiConfig()
+})
+
+function getOptionIcon(index) {
+  const icons = ['🔵', '🟢', '🟡', '🟣', '🔴', '🟠']
+  return icons[index % icons.length]
+}
+
+// 获取服务商名称
+function getProviderName(provider) {
+  const names = {
+    openai: 'OpenAI',
+    anthropic: 'Anthropic',
+    custom: '自定义 API',
+    mock: '演示模式'
+  }
+  return names[provider] || provider
+}
+</script>
+
+<style scoped>
+.app-container {
+  width: 100%;
+  max-width: 1200px;
+}
+
+.decision-section {
+  width: 100%;
+}
+
+.header {
+  margin-bottom: 40px;
+  color: white;
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 15px;
+}
+
+.header h1 {
+  font-size: 2.5rem;
+  margin-bottom: 10px;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.subtitle {
+  font-size: 1.1rem;
+  opacity: 0.9;
+}
+
+.config-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
+  color: white;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.config-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.config-icon {
+  font-size: 1.2rem;
+  animation: rotate 3s linear infinite;
+}
+
+@keyframes rotate {
+  0%, 90% {
+    transform: rotate(0deg);
+  }
+  95% {
+    transform: rotate(180deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.api-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  font-size: 0.9rem;
+  width: fit-content;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  background: #4caf50;
+  border-radius: 50%;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.2);
+  }
+}
+
+.status-text {
+  font-weight: 600;
+}
+
+.input-card, .decision-card, .result-card {
+  background: white;
+  border-radius: 20px;
+  padding: 40px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.5s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.input-card label {
+  display: block;
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.input-card textarea {
+  width: 100%;
+  padding: 15px;
+  border: 2px solid #e0e0e0;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-family: inherit;
+  resize: vertical;
+  transition: border-color 0.3s;
+}
+
+.input-card textarea:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.primary-btn {
+  width: 100%;
+  padding: 15px;
+  margin-top: 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.primary-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+}
+
+.primary-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  margin-bottom: 30px;
+  overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #fff 0%, rgba(255, 255, 255, 0.8) 100%);
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.question-header {
+  margin-bottom: 30px;
+}
+
+.step-indicator {
+  display: inline-block;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: white;
+  margin-bottom: 15px;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  animation: fadeInDown 0.5s ease-out;
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.question-header h2 {
+  font-size: 1.5rem;
+  color: #333;
+  line-height: 1.4;
+}
+
+.options-container {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.option-btn {
+  display: flex;
+  align-items: center;
+  padding: 20px 24px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border: 2.5px solid #dee2e6;
+  border-radius: 16px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  text-align: left;
+  position: relative;
+  overflow: hidden;
+}
+
+.option-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transition: left 0.5s ease;
+}
+
+.option-btn:hover::before {
+  left: 100%;
+}
+
+.option-btn:hover {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: #667eea;
+  color: white;
+  transform: translateX(8px) scale(1.02);
+  box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+}
+
+.option-btn:active {
+  transform: translateX(8px) scale(0.98);
+}
+
+.option-icon {
+  font-size: 1.8rem;
+  margin-right: 16px;
+  transition: transform 0.3s ease;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+}
+
+.option-btn:hover .option-icon {
+  transform: scale(1.2) rotate(5deg);
+}
+
+.option-text {
+  flex: 1;
+  font-weight: 500;
+}
+
+.back-btn {
+  padding: 12px 28px;
+  background: linear-gradient(135deg, #f0f0f0 0%, #e0e0e0 100%);
+  border: 2px solid #d0d0d0;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  color: #555;
+}
+
+.back-btn:hover {
+  background: linear-gradient(135deg, #e0e0e0 0%, #d0d0d0 100%);
+  transform: translateX(-5px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.result-icon {
+  font-size: 5rem;
+  text-align: center;
+  margin-bottom: 20px;
+  animation: zoomIn 0.6s cubic-bezier(0.4, 0, 0.2, 1), float 3s ease-in-out infinite;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
+}
+
+@keyframes zoomIn {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.result-card h2 {
+  text-align: center;
+  font-size: 2rem;
+  color: #333;
+  margin-bottom: 20px;
+}
+
+.result-content {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  padding: 30px;
+  border-radius: 16px;
+  margin-bottom: 30px;
+  border: 2px solid #dee2e6;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.result-content p {
+  font-size: 1.15rem;
+  line-height: 1.8;
+  color: #333;
+  font-weight: 500;
+}
+
+.result-path h3 {
+  font-size: 1.2rem;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.path-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 30px;
+}
+
+.path-step {
+  display: flex;
+  align-items: center;
+  padding: 14px 16px;
+  background: white;
+  border-radius: 12px;
+  border: 2px solid #e9ecef;
+  transition: all 0.3s ease;
+  animation: slideInLeft 0.5s ease-out backwards;
+  animation-delay: calc(var(--index) * 0.1s);
+}
+
+.path-step:hover {
+  transform: translateX(5px);
+  border-color: #667eea;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.path-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 0.95rem;
+  margin-right: 14px;
+  box-shadow: 0 3px 8px rgba(102, 126, 234, 0.3);
+}
+
+.path-text {
+  flex: 1;
+  color: #333;
+  font-weight: 500;
+  font-size: 1rem;
+}
+
+@media (max-width: 768px) {
+  .header h1 {
+    font-size: 2rem;
+  }
+  
+  .input-card, .decision-card, .result-card {
+    padding: 25px;
+  }
+}
+</style>
