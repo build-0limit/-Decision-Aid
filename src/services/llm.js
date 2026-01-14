@@ -392,37 +392,28 @@ export default {
     const url = new URL(request.url)
     const path = url.pathname
     
-    try {
-      // API 路由
-      if (path === '/api/generate' && request.method === 'POST') {
-        const { question, config } = await request.json()
-        
-        let result
-        if (config.provider === 'mock') {
-          result = generateMockDecisionTree(question)
-        } else {
-          result = await callLLMApi(question, config)
-        }
-        
-        return new Response(JSON.stringify(result))
+    // API 路由
+    if (path === '/api/generate' && request.method === 'POST') {
+      const { question, config } = await request.json()
+      
+      let result
+      if (config.provider === 'mock') {
+        result = generateMockDecisionTree(question)
+      } else {
+        result = await callLLMApi(question, config)
       }
       
-      if (path === '/api/test' && request.method === 'POST') {
-        const { config } = await request.json()
-        const result = await testApiConnection(config)
-        
-        return new Response(JSON.stringify(result))
-      }
-      
-      // 默认响应
-      return new Response('LLM Decision Tree API')
-      
-    } catch (error) {
-      return new Response(JSON.stringify({ 
-        error: error.message 
-      }), {
-        status: 500,
-      })
+      return new Response(JSON.stringify(result))
     }
+    
+    if (path === '/api/test' && request.method === 'POST') {
+      const { config } = await request.json()
+      const result = await testApiConnection(config)
+      
+      return new Response(JSON.stringify(result))
+    }
+    
+    // 默认响应
+    return new Response('LLM Decision Tree API')
   }
 }
