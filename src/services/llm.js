@@ -492,7 +492,7 @@ function generateShortCode(length = 7) {
 
 // Workers 格式导出（用于边缘计算部署）
 export default {
-  async fetch(request, env) {
+  async fetch(request) {
     const url = new URL(request.url)
     const path = url.pathname
     
@@ -534,7 +534,7 @@ export default {
           return bad(400, 'Invalid request: decisionTree and question are required')
         }
 
-        const kv = env.SHARES
+        const kv = process.env.SHARES
         if (!kv) {
           return bad(500, 'KV namespace not configured')
         }
@@ -581,7 +581,7 @@ export default {
     if (getShareMatch && request.method === 'GET') {
       try {
         const code = getShareMatch[1]
-        const kv = env.SHARES
+        const kv = process.env.SHARES
         if (!kv) {
           return bad(500, 'KV namespace not configured')
         }

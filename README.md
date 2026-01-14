@@ -57,15 +57,9 @@ npm run build
 5. 点击"测试连接"验证配置
 6. 保存配置
 
-### 方式二：环境变量（可选）
+### 方式二：环境变量
 
-创建 `.env` 文件：
-
-```env
-VITE_LLM_PROVIDER=openai
-VITE_OPENAI_API_KEY=your_api_key_here
-VITE_OPENAI_MODEL=gpt-4
-```
+esa构建时，环境变量添加SHARES，用于KV存储
 
 ### 支持的LLM服务
 
