@@ -1,5 +1,15 @@
 <template>
   <div class="app-container">
+    <!-- 隐藏的 SVG 定义渐变 -->
+    <svg width="0" height="0" style="position: absolute;">
+      <defs>
+        <linearGradient id="activeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+          <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+        </linearGradient>
+      </defs>
+    </svg>
+    
     <div class="header">
       <div class="header-content">
         <div>
@@ -150,12 +160,36 @@
         <!-- 分享功能 -->
         <div class="share-section">
           <button @click="shareDecision" class="share-btn" :disabled="shareLoading">
-            <span v-if="shareLoading" class="loading-content">
-              <span class="spinner"></span>
-              <span>正在生成分享链接...</span>
+            <span v-if="!shareLoading">🔗 分享决策树</span>
+            <span v-else class="loading-content">
+              <span class="share-loading-text">正在生成分享链接...</span>
             </span>
-            <span v-else>🔗 分享决策树</span>
           </button>
+          
+          <!-- 环形进度条 -->
+          <div v-if="shareLoading" class="circular-progress-container">
+            <svg class="circular-progress" viewBox="0 0 120 120">
+              <circle
+                class="progress-bg"
+                cx="60"
+                cy="60"
+                r="54"
+              />
+              <circle
+                class="progress-bar"
+                cx="60"
+                cy="60"
+                r="54"
+                :style="{
+                  strokeDashoffset: 339.292 - (339.292 * shareProgress) / 100
+                }"
+              />
+            </svg>
+            <div class="progress-text">
+              <div class="progress-percentage">{{ Math.round(shareProgress) }}%</div>
+              <div class="progress-label">验证中</div>
+            </div>
+          </div>
           
           <div v-if="shareLink" class="share-result">
             <div class="share-link-container">
@@ -264,6 +298,8 @@ const shareLoading = ref(false)
 const shareLink = ref('')
 const copied = ref(false)
 const shareLinkInput = ref(null)
+const shareProgress = ref(0)
+const shareCode = ref('')
 const sharedData = ref({
   question: '',
   decisionTree: null,
@@ -463,12 +499,19 @@ function restart() {
   currentStep.value = 0
   shareLink.value = ''
   copied.value = false
+  shareProgress.value = 0
+  shareCode.value = ''
 }
 
 // 分享决策树
 async function shareDecision() {
   shareLoading.value = true
+  shareProgress.value = 0
+  shareCode.value = ''
+  shareLink.value = ''
+  
   try {
+    // 1. 创建分享
     const response = await fetch('/api/shares', {
       method: 'POST',
       headers: {
@@ -488,18 +531,62 @@ async function shareDecision() {
     }
 
     const data = await response.json()
+    shareCode.value = data.code
     const baseUrl = window.location.origin
     const link = `${baseUrl}/share/${data.code}`
     
-    // 延迟展示链接，确保数据写入同步成功
-    // 使用渐进式延迟提升用户体验
-    await new Promise(resolve => setTimeout(resolve, 1500))
+    // 2. 轮询验证数据是否可用（最多5秒）
+    const maxDuration = 5000 // 5秒
+    const pollInterval = 1000 // 每1秒轮询一次
+    const startTime = Date.now()
+    let verified = false
+    
+    // 启动进度条动画
+    const progressInterval = setInterval(() => {
+      const elapsed = Date.now() - startTime
+      shareProgress.value = Math.min((elapsed / maxDuration) * 100, 100)
+    }, 50)
+    
+    // 轮询检查数据
+    while (Date.now() - startTime < maxDuration) {
+      try {
+        const checkResponse = await fetch(`/api/shares/${data.code}`)
+        if (checkResponse.ok) {
+          // 数据可用，提前返回
+          verified = true
+          clearInterval(progressInterval)
+          shareProgress.value = 100
+          break
+        }
+      } catch (error) {
+        // 继续轮询
+        console.log('轮询中...', error)
+      }
+      
+      // 等待1秒后继续
+      await new Promise(resolve => setTimeout(resolve, pollInterval))
+    }
+    
+    // 清理进度条
+    clearInterval(progressInterval)
+    
+    // 确保进度条到达100%
+    if (!verified) {
+      shareProgress.value = 100
+    }
+    
+    // 短暂延迟后显示链接（让用户看到100%的状态）
+    await new Promise(resolve => setTimeout(resolve, 300))
     
     shareLink.value = link
   } catch (error) {
     alert('分享失败：' + error.message)
     console.error(error)
   } finally {
+    shareLoading.value = false
+    shareProgress.value = 0
+  }
+}
     shareLoading.value = false
   }
 }
@@ -1077,8 +1164,82 @@ function getProviderName(provider) {
 }
 
 .share-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.8;
   cursor: not-allowed;
+}
+
+.share-loading-text {
+  display: inline-block;
+}
+
+/* 环形进度条 */
+.circular-progress-container {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  margin: 25px auto;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.circular-progress {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.progress-bg {
+  fill: none;
+  stroke: #e0e0e0;
+  stroke-width: 8;
+}
+
+.progress-bar {
+  fill: none;
+  stroke: url(#activeGradient);
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-dasharray: 339.292;
+  stroke-dashoffset: 339.292;
+  transition: stroke-dashoffset 0.3s ease;
+  filter: drop-shadow(0 0 6px rgba(102, 126, 234, 0.5));
+}
+
+.progress-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.progress-percentage {
+  font-size: 1.8rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.progress-label {
+  font-size: 0.75rem;
+  color: #666;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .share-result {
