@@ -10,6 +10,8 @@ const DEFAULT_CONFIG = {
   saveToLocal: true
 }
 
+const SHARES = 'aid'
+
 // 配置管理
 export function getApiConfig() {
   try {
@@ -534,7 +536,7 @@ export default {
           return bad(400, 'Invalid request: decisionTree and question are required')
         }
 
-        const kv = import.meta.env.SHARES
+        const kv = SHARES
         if (!kv) {
           return bad(500, 'KV namespace not configured')
         }
@@ -581,7 +583,7 @@ export default {
     if (getShareMatch && request.method === 'GET') {
       try {
         const code = getShareMatch[1]
-        const kv = import.meta.env.SHARES
+        const kv = SHARES
         if (!kv) {
           return bad(500, 'KV namespace not configured')
         }
