@@ -536,7 +536,7 @@ export default {
           return bad(400, 'Invalid request: decisionTree and question are required')
         }
 
-        const kv = SHARES
+        const kv = new EdgeKV({ namespace: SHARES });
         if (!kv) {
           return bad(500, 'KV namespace not configured')
         }
@@ -583,7 +583,7 @@ export default {
     if (getShareMatch && request.method === 'GET') {
       try {
         const code = getShareMatch[1]
-        const kv = SHARES
+        const kv = new EdgeKV({ namespace: SHARES });
         if (!kv) {
           return bad(500, 'KV namespace not configured')
         }
