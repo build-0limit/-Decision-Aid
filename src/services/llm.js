@@ -479,24 +479,14 @@ export default {
         result = await callLLMApi(question, config, context || {})
       }
       
-      return new Response(JSON.stringify(result), {
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-        },
-      })
+      return new Response(JSON.stringify(result))
     }
     
     if (path === '/api/test' && request.method === 'POST') {
       const { config } = await request.json()
       const result = await testApiConnection(config)
       
-      return new Response(JSON.stringify(result), {
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-        },
-      })
+      return new Response(JSON.stringify(result))
     }
     
     // 默认响应
