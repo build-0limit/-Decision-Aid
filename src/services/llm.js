@@ -414,6 +414,6 @@ export default {
     }
     
     // 默认响应
-    return new Response('LLM Decision Tree API')
+    return bad(404, "Not Found");
   }
 }
