@@ -1,5 +1,11 @@
 # 🧠 智能决策助手
 
+### 本项目由阿里云ESA提供加速、计算和保护
+![esa](./esa.png)
+
+### Vibe Coding with Kiro
+![kiro](./kiro.jpg)
+
 一个由LLM驱动的交互式决策树应用，帮助用户做出更明智的选择。
 
 ## ✨ 功能特点
