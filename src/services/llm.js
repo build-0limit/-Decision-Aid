@@ -434,3 +434,6 @@ export async function generateDecisionTreeFromLLM(question) {
   }
 }
 */
+
+export default{
+};
