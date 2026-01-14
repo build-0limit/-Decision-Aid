@@ -587,9 +587,6 @@ async function shareDecision() {
     shareProgress.value = 0
   }
 }
-    shareLoading.value = false
-  }
-}
 
 // 复制分享链接
 async function copyShareLink() {
