@@ -107,8 +107,72 @@
           </div>
         </div>
 
+        <!-- 分享功能 -->
+        <div class="share-section">
+          <button @click="shareDecision" class="share-btn" :disabled="shareLoading">
+            <span v-if="shareLoading">生成中...</span>
+            <span v-else>🔗 分享决策树</span>
+          </button>
+          
+          <div v-if="shareLink" class="share-result">
+            <div class="share-link-container">
+              <input 
+                ref="shareLinkInput"
+                type="text" 
+                :value="shareLink" 
+                readonly 
+                class="share-link-input"
+              />
+              <button @click="copyShareLink" class="copy-btn">
+                {{ copied ? '✓ 已复制' : '复制链接' }}
+              </button>
+            </div>
+            <p class="share-hint">链接有效期 -- 天</p>
+          </div>
+        </div>
+
         <button @click="restart" class="primary-btn">
           开始新的决策
+        </button>
+      </div>
+    </div>
+
+    <!-- 查看分享阶段 -->
+    <div v-if="stage === 'shared'" class="shared-section">
+      <DecisionTreeVisualization
+        :tree-data="sharedData.decisionTree"
+        :current-node-id="sharedData.currentNodeId"
+        :visited-nodes="sharedData.visitedNodes"
+      />
+
+      <div class="result-card">
+        <div class="result-icon">🌐</div>
+        <h2>分享的决策</h2>
+        <div class="shared-question">
+          <strong>问题：</strong>{{ sharedData.question }}
+        </div>
+        
+        <div v-if="sharedData.finalResult" class="result-content">
+          <p>{{ sharedData.finalResult }}</p>
+        </div>
+        
+        <div v-if="sharedData.decisionPath && sharedData.decisionPath.length > 0" class="result-path">
+          <h3>决策路径：</h3>
+          <div class="path-steps">
+            <div 
+              v-for="(step, index) in sharedData.decisionPath" 
+              :key="index" 
+              class="path-step"
+              :style="{ '--index': index }"
+            >
+              <span class="path-number">{{ index + 1 }}</span>
+              <span class="path-text">{{ step }}</span>
+            </div>
+          </div>
+        </div>
+
+        <button @click="restart" class="primary-btn">
+          创建我的决策
         </button>
       </div>
     </div>
@@ -138,7 +202,7 @@ const DEFAULT_CONFIG = {
   saveToLocal: true
 }
 
-const stage = ref('input') // 'input', 'decision', 'result'
+const stage = ref('input') // 'input', 'decision', 'result', 'shared'
 const userQuestion = ref('')
 const loading = ref(false)
 const decisionTree = ref(null)
@@ -151,6 +215,20 @@ const finalResult = ref('')
 const currentStep = ref(0)
 const showConfigModal = ref(false)
 const apiConfig = ref(getApiConfig())
+
+// 分享相关
+const shareLoading = ref(false)
+const shareLink = ref('')
+const copied = ref(false)
+const shareLinkInput = ref(null)
+const sharedData = ref({
+  question: '',
+  decisionTree: null,
+  decisionPath: [],
+  finalResult: '',
+  currentNodeId: 'node-0',
+  visitedNodes: []
+})
 
 // 配置管理
 function getApiConfig() {
@@ -340,6 +418,91 @@ function restart() {
   decisionPath.value = []
   finalResult.value = ''
   currentStep.value = 0
+  shareLink.value = ''
+  copied.value = false
+}
+
+// 分享决策树
+async function shareDecision() {
+  shareLoading.value = true
+  try {
+    const response = await fetch('/api/shares', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        question: userQuestion.value,
+        decisionTree: decisionTree.value,
+        decisionPath: decisionPath.value,
+        finalResult: finalResult.value
+      })
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || '分享失败')
+    }
+
+    const data = await response.json()
+    const baseUrl = window.location.origin
+    shareLink.value = `${baseUrl}/share/${data.code}`
+  } catch (error) {
+    alert('分享失败：' + error.message)
+    console.error(error)
+  } finally {
+    shareLoading.value = false
+  }
+}
+
+// 复制分享链接
+async function copyShareLink() {
+  try {
+    await navigator.clipboard.writeText(shareLink.value)
+    copied.value = true
+    setTimeout(() => {
+      copied.value = false
+    }, 2000)
+  } catch (error) {
+    // 降级方案：选中文本
+    if (shareLinkInput.value) {
+      shareLinkInput.value.select()
+      document.execCommand('copy')
+      copied.value = true
+      setTimeout(() => {
+        copied.value = false
+      }, 2000)
+    }
+  }
+}
+
+// 加载分享的决策树
+async function loadSharedDecision(code) {
+  loading.value = true
+  try {
+    const response = await fetch(`/api/shares/${code}`)
+    
+    if (!response.ok) {
+      throw new Error('分享不存在或已过期')
+    }
+
+    const data = await response.json()
+    sharedData.value = {
+      question: data.question,
+      decisionTree: data.decisionTree,
+      decisionPath: data.decisionPath || [],
+      finalResult: data.finalResult || '',
+      currentNodeId: 'node-0',
+      visitedNodes: ['node-0']
+    }
+    
+    stage.value = 'shared'
+  } catch (error) {
+    alert('加载分享失败：' + error.message)
+    stage.value = 'input'
+  } finally {
+    loading.value = false
+  }
 }
 
 function handleTreeNodeClick(node) {
@@ -362,6 +525,14 @@ function saveConfig(config) {
 // 初始化时加载配置
 onMounted(() => {
   apiConfig.value = getApiConfig()
+  
+  // 检查是否是分享链接
+  const path = window.location.pathname
+  const shareMatch = path.match(/^\/share\/([0-9a-zA-Z_-]{3,32})$/)
+  if (shareMatch) {
+    const code = shareMatch[1]
+    loadSharedDecision(code)
+  }
 })
 
 function getOptionIcon(index) {
@@ -830,6 +1001,114 @@ function getProviderName(provider) {
   font-size: 1rem;
 }
 
+.share-section {
+  margin: 30px 0;
+  padding: 20px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-radius: 16px;
+  border: 2px solid #dee2e6;
+}
+
+.share-btn {
+  width: 100%;
+  padding: 15px;
+  background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.share-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(76, 175, 80, 0.4);
+}
+
+.share-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.share-result {
+  margin-top: 15px;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.share-link-container {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.share-link-input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 2px solid #dee2e6;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-family: monospace;
+  background: white;
+  color: #333;
+}
+
+.copy-btn {
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.copy-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.share-hint {
+  font-size: 0.85rem;
+  color: #666;
+  text-align: center;
+  margin: 0;
+}
+
+.shared-section {
+  width: 100%;
+}
+
+.shared-question {
+  padding: 20px;
+  background: white;
+  border-radius: 12px;
+  border: 2px solid #e9ecef;
+  margin-bottom: 20px;
+  font-size: 1.1rem;
+  line-height: 1.6;
+}
+
+.shared-question strong {
+  color: #667eea;
+  margin-right: 8px;
+}
+
 @media (max-width: 768px) {
   .header h1 {
     font-size: 2rem;
@@ -837,6 +1116,14 @@ function getProviderName(provider) {
   
   .input-card, .decision-card, .result-card {
     padding: 25px;
+  }
+  
+  .share-link-container {
+    flex-direction: column;
+  }
+  
+  .copy-btn {
+    width: 100%;
   }
 }
 </style>

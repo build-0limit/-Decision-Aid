@@ -461,35 +461,144 @@ export async function testApiConnection(config) {
   }
 }
 
-// Cloudflare Workers 格式导出（用于边缘计算部署）
+// Helper functions
+function bad(status, message) {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+}
+
+function generateShortCode(length = 7) {
+  const chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+  const randomBytes = crypto.getRandomValues(new Uint8Array(length))
+  let code = ''
+  for (let i = 0; i < length; i++) {
+    code += chars[randomBytes[i] % chars.length]
+  }
+  return code
+}
+
+// Workers 格式导出（用于边缘计算部署）
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url)
     const path = url.pathname
     
-    // API 路由
+    
+    // API 路由：生成决策树
     if (path === '/api/generate' && request.method === 'POST') {
-      const { question, config, context } = await request.json()
-      
-      let result
-      if (config.provider === 'mock') {
-        // 根据上下文生成单层决策树
-        result = generateMockDecisionTree(question, context || {})
-      } else {
-        result = await callLLMApi(question, config, context || {})
+      try {
+        const { question, config, context } = await request.json()
+        
+        let result
+        if (config.provider === 'mock') {
+          result = generateMockDecisionTree(question, context || {})
+        } else {
+          result = await callLLMApi(question, config, context || {})
+        }
+        
+        return json(result)
+      } catch (error) {
+        return bad(500, error.message)
       }
-      
-      return new Response(JSON.stringify(result))
     }
     
+    // API 路由：测试连接
     if (path === '/api/test' && request.method === 'POST') {
-      const { config } = await request.json()
-      const result = await testApiConnection(config)
-      
-      return new Response(JSON.stringify(result))
+      try {
+        const { config } = await request.json()
+        const result = await testApiConnection(config)
+        return json(result)
+      } catch (error) {
+        return bad(500, error.message)
+      }
+    }
+
+    // API 路由：创建分享 POST /api/shares
+    if (path === '/api/shares' && request.method === 'POST') {
+      try {
+        const body = await request.json().catch(() => null)
+        if (!body || !body.decisionTree || !body.question) {
+          return bad(400, 'Invalid request: decisionTree and question are required')
+        }
+
+        const kv = env.SHARES
+        if (!kv) {
+          return bad(500, 'KV namespace not configured')
+        }
+
+        // 支持自定义 code；否则随机生成
+        let code = body.code ? String(body.code) : ''
+        if (code) {
+          if (!/^[0-9a-zA-Z_-]{3,32}$/.test(code)) {
+            return bad(400, 'Invalid code format (3-32 alphanumeric characters)')
+          }
+          const exists = await kv.get(`share:${code}`)
+          if (exists) {
+            return bad(409, 'Code already exists')
+          }
+        } else {
+          // 尝试生成唯一的随机 code
+          for (let i = 0; i < 5; i++) {
+            code = generateShortCode(7)
+            const exists = await kv.get(`share:${code}`)
+            if (!exists) break
+          }
+        }
+
+        const record = {
+          question: body.question,
+          decisionTree: body.decisionTree,
+          decisionPath: body.decisionPath || [],
+          finalResult: body.finalResult || '',
+          createdAt: Date.now(),
+          note: body.note || ''
+        }
+
+        // 存储到 KV
+        await kv.put(`share:${code}`, JSON.stringify(record))
+
+        return json({ code, ...record }, 201)
+      } catch (error) {
+        return bad(500, error.message)
+      }
+    }
+
+    // API 路由：获取分享 GET /api/shares/{code}
+    const getShareMatch = path.match(/^\/api\/shares\/([0-9a-zA-Z_-]{3,32})$/)
+    if (getShareMatch && request.method === 'GET') {
+      try {
+        const code = getShareMatch[1]
+        const kv = env.SHARES
+        if (!kv) {
+          return bad(500, 'KV namespace not configured')
+        }
+
+        const data = await kv.get(`share:${code}`)
+        if (!data) {
+          return bad(404, 'Share not found or expired')
+        }
+
+        const record = JSON.parse(data)
+        return json({ code, ...record })
+      } catch (error) {
+        return bad(500, error.message)
+      }
     }
     
     // 默认响应
-    return bad(404, "Not Found");
+    return bad(404, 'Not Found')
   }
 }
