@@ -125,9 +125,18 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { generateDecisionTreeFromLLM, setApiConfig, getApiConfig } from './services/llm'
 import DecisionTreeVisualization from './components/DecisionTreeVisualization.vue'
 import ConfigModal from './components/ConfigModal.vue'
+
+// 默认配置
+const DEFAULT_CONFIG = {
+  provider: 'mock',
+  apiKey: '',
+  model: 'gpt-4',
+  endpoint: '',
+  temperature: 0.7,
+  saveToLocal: true
+}
 
 const stage = ref('input') // 'input', 'decision', 'result'
 const userQuestion = ref('')
@@ -142,6 +151,31 @@ const finalResult = ref('')
 const currentStep = ref(0)
 const showConfigModal = ref(false)
 const apiConfig = ref(getApiConfig())
+
+// 配置管理
+function getApiConfig() {
+  try {
+    const saved = localStorage.getItem('llm_api_config')
+    if (saved) {
+      return { ...DEFAULT_CONFIG, ...JSON.parse(saved) }
+    }
+  } catch (error) {
+    console.error('Failed to load config:', error)
+  }
+  return { ...DEFAULT_CONFIG }
+}
+
+function setApiConfig(config) {
+  try {
+    if (config.saveToLocal) {
+      localStorage.setItem('llm_api_config', JSON.stringify(config))
+    } else {
+      localStorage.removeItem('llm_api_config')
+    }
+  } catch (error) {
+    console.error('Failed to save config:', error)
+  }
+}
 
 const totalSteps = computed(() => {
   if (!decisionTree.value) return 0
@@ -164,7 +198,25 @@ function estimateTreeDepth(node, depth = 0) {
 async function generateDecisionTree() {
   loading.value = true
   try {
-    decisionTree.value = await generateDecisionTreeFromLLM(userQuestion.value)
+    const config = getApiConfig()
+    
+    // 调用 Workers API
+    const response = await fetch(`/api/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        question: userQuestion.value,
+        config
+      })
+    })
+    
+    if (!response.ok) {
+      throw new Error('API 调用失败')
+    }
+    
+    decisionTree.value = await response.json()
     currentNode.value = decisionTree.value
     currentNodeId.value = 'node-0'
     visitedNodeIds.value = ['node-0']

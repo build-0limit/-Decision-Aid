@@ -164,6 +164,9 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 
+// Workers API 端点
+const WORKERS_URL = import.meta.env.VITE_WORKERS_URL || 'http://localhost:8787'
+
 const props = defineProps({
   show: {
     type: Boolean,
@@ -235,15 +238,33 @@ async function testConnection() {
   testResult.value = null
   
   try {
-    // 模拟测试 API 连接
-    await new Promise(resolve => setTimeout(resolve, 1500))
+    // 调用 Workers API 测试连接
+    const response = await fetch(`/api/test`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        config: localConfig.value
+      })
+    })
     
-    // 这里应该调用实际的 API 测试
-    // const result = await testApiConnection(localConfig.value)
+    if (!response.ok) {
+      throw new Error('测试失败')
+    }
     
-    testResult.value = {
-      type: 'success',
-      message: 'API 连接测试成功！'
+    const result = await response.json()
+    
+    if (result.success) {
+      testResult.value = {
+        type: 'success',
+        message: result.message || 'API 连接测试成功！'
+      }
+    } else {
+      testResult.value = {
+        type: 'error',
+        message: result.message || '连接失败'
+      }
     }
   } catch (error) {
     testResult.value = {

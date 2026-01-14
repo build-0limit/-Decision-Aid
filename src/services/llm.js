@@ -15,7 +15,7 @@ export function getApiConfig() {
   try {
     const saved = localStorage.getItem('llm_api_config')
     if (saved) {
-      return { ...JSON.parse(saved) }
+      return { ...DEFAULT_CONFIG, ...JSON.parse(saved) }
     }
   } catch (error) {
     console.error('Failed to load config:', error)
@@ -104,12 +104,12 @@ async function callLLMApi(question, config) {
 /**
  * 调用 OpenAI API
  */
-export async function callOpenAI(question, systemPrompt, config) {
+async function callOpenAI(question, systemPrompt, config) {
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer ${config.apiKey}'
+      'Authorization': `Bearer ${config.apiKey}`
     },
     body: JSON.stringify({
       model: config.model || 'gpt-4',
@@ -135,7 +135,7 @@ export async function callOpenAI(question, systemPrompt, config) {
 /**
  * 调用 Anthropic API
  */
-export async function callAnthropic(question, systemPrompt, config) {
+async function callAnthropic(question, systemPrompt, config) {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -174,7 +174,7 @@ export async function callAnthropic(question, systemPrompt, config) {
 /**
  * 调用自定义 API
  */
-export async function callCustomApi(question, systemPrompt, config) {
+async function callCustomApi(question, systemPrompt, config) {
   const response = await fetch(config.endpoint, {
     method: 'POST',
     headers: {
@@ -218,7 +218,6 @@ export async function callCustomApi(question, systemPrompt, config) {
 
 /**
  * 模拟决策树生成（用于演示）
- * 在生产环境中，替换为真实的LLM API调用
  */
 function generateMockDecisionTree(question) {
   // 根据问题关键词生成不同的决策树
@@ -387,53 +386,43 @@ export async function testApiConnection(config) {
   }
 }
 
-/**
- * 调用真实LLM API的示例函数（已弃用，请使用上面的实现）
- */
-/*
-import axios from 'axios'
-
-export async function generateDecisionTreeFromLLM(question) {
-  try {
-    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-      model: 'gpt-4',
-      messages: [
-        {
-          role: 'system',
-          content: `你是一个决策助手。根据用户的问题，生成一个决策树。
-          决策树的格式如下：
-          {
-            "question": "第一个问题",
-            "options": [
-              {
-                "text": "选项1",
-                "next": { 下一个节点 } 或 "result": "最终结果"
-              }
-            ]
-          }
-          确保决策树逻辑清晰，每个分支都能引导用户得到有价值的结论。`
-        },
-        {
-          role: 'user',
-          content: question
-        }
-      ],
-      temperature: 0.7
-    }, {
-      headers: {
-        'Authorization': `Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    })
+// Cloudflare Workers 格式导出（用于边缘计算部署）
+export default {
+  async fetch(request) {
+    const url = new URL(request.url)
+    const path = url.pathname
     
-    const content = response.data.choices[0].message.content
-    return JSON.parse(content)
-  } catch (error) {
-    console.error('LLM API调用失败:', error)
-    throw error
+    try {
+      // API 路由
+      if (path === '/api/generate' && request.method === 'POST') {
+        const { question, config } = await request.json()
+        
+        let result
+        if (config.provider === 'mock') {
+          result = generateMockDecisionTree(question)
+        } else {
+          result = await callLLMApi(question, config)
+        }
+        
+        return new Response(JSON.stringify(result))
+      }
+      
+      if (path === '/api/test' && request.method === 'POST') {
+        const { config } = await request.json()
+        const result = await testApiConnection(config)
+        
+        return new Response(JSON.stringify(result))
+      }
+      
+      // 默认响应
+      return new Response('LLM Decision Tree API')
+      
+    } catch (error) {
+      return new Response(JSON.stringify({ 
+        error: error.message 
+      }), {
+        status: 500,
+      })
+    }
   }
 }
-*/
-
-export default{
-};
