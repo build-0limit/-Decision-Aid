@@ -164,9 +164,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 
-// Workers API 端点
-const WORKERS_URL = import.meta.env.VITE_WORKERS_URL || 'http://localhost:8787'
-
 const props = defineProps({
   show: {
     type: Boolean,

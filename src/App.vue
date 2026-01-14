@@ -200,7 +200,7 @@ async function generateDecisionTree() {
   try {
     const config = getApiConfig()
     
-    // 调用 Workers API
+    // 调用 Workers API 生成第一层
     const response = await fetch(`/api/generate`, {
       method: 'POST',
       headers: {
@@ -208,7 +208,11 @@ async function generateDecisionTree() {
       },
       body: JSON.stringify({
         question: userQuestion.value,
-        config
+        config,
+        context: {
+          isFirstLevel: true,
+          previousChoices: []
+        }
       })
     })
     
@@ -216,8 +220,9 @@ async function generateDecisionTree() {
       throw new Error('API 调用失败')
     }
     
-    decisionTree.value = await response.json()
-    currentNode.value = decisionTree.value
+    const firstLevel = await response.json()
+    decisionTree.value = firstLevel
+    currentNode.value = firstLevel
     currentNodeId.value = 'node-0'
     visitedNodeIds.value = ['node-0']
     stage.value = 'decision'
@@ -230,19 +235,12 @@ async function generateDecisionTree() {
   }
 }
 
-function selectOption(option) {
+async function selectOption(option) {
   decisionPath.value.push(option.text)
   currentStep.value++
   
-  if (option.next) {
-    history.value.push({ node: currentNode.value, nodeId: currentNodeId.value })
-    currentNode.value = option.next
-    
-    // 计算新节点ID
-    const newNodeId = calculateNodeId(option)
-    currentNodeId.value = newNodeId
-    visitedNodeIds.value.push(newNodeId)
-  } else if (option.result) {
+  // 如果是结果节点，直接显示结果
+  if (option.result) {
     finalResult.value = option.result
     const resultNodeId = calculateNodeId(option)
     currentNodeId.value = resultNodeId
@@ -252,6 +250,66 @@ function selectOption(option) {
     setTimeout(() => {
       stage.value = 'result'
     }, 800)
+    return
+  }
+  
+  // 如果已经有下一层节点，直接使用
+  if (option.next) {
+    history.value.push({ node: currentNode.value, nodeId: currentNodeId.value })
+    currentNode.value = option.next
+    
+    const newNodeId = calculateNodeId(option)
+    currentNodeId.value = newNodeId
+    visitedNodeIds.value.push(newNodeId)
+    return
+  }
+  
+  // 否则，动态生成下一层
+  loading.value = true
+  try {
+    const config = getApiConfig()
+    
+    // 调用 Workers API 生成下一层
+    const response = await fetch(`/api/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        question: userQuestion.value,
+        config,
+        context: {
+          isFirstLevel: false,
+          previousChoices: decisionPath.value,
+          currentQuestion: currentNode.value.question,
+          selectedOption: option.text
+        }
+      })
+    })
+    
+    if (!response.ok) {
+      throw new Error('生成下一层失败')
+    }
+    
+    const nextLevel = await response.json()
+    
+    // 将新生成的节点附加到选项上
+    option.next = nextLevel
+    
+    // 保存当前节点到历史
+    history.value.push({ node: currentNode.value, nodeId: currentNodeId.value })
+    
+    // 移动到新节点
+    currentNode.value = nextLevel
+    const newNodeId = calculateNodeId(option)
+    currentNodeId.value = newNodeId
+    visitedNodeIds.value.push(newNodeId)
+    
+  } catch (error) {
+    alert('生成下一层失败，请重试')
+    console.error(error)
+  } finally {
+    loading.value = false
   }
 }
 
