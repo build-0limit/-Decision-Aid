@@ -560,12 +560,17 @@ export default {
           }
         }
 
+        // 计算过期时间（默认7天）
+        const expirationDays = body.expirationDays || 7
+        const expirationTime = Date.now() + (expirationDays * 24 * 60 * 60 * 1000)
+
         const record = {
           question: body.question,
           decisionTree: body.decisionTree,
           decisionPath: body.decisionPath || [],
           finalResult: body.finalResult || '',
           createdAt: Date.now(),
+          expiresAt: expirationTime,
           note: body.note || ''
         }
 
@@ -594,6 +599,14 @@ export default {
         }
 
         const record = JSON.parse(data)
+        
+        // 检查是否过期
+        if (record.expiresAt && Date.now() > record.expiresAt) {
+          // 过期了，自动删除
+          await kv.delete(`share:${code}`)
+          return bad(410, 'Share has expired and has been deleted')
+        }
+
         return json({ code, ...record })
       } catch (error) {
         return bad(500, error.message)

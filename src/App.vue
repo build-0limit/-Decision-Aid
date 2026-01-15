@@ -204,7 +204,7 @@
                 {{ copied ? '✓ 已复制' : '复制链接' }}
               </button>
             </div>
-            <p class="share-hint">链接有效期 -- 天</p>
+            <p class="share-hint">链接有效期 {{ remainingDays }} 天</p>
           </div>
         </div>
 
@@ -300,6 +300,7 @@ const copied = ref(false)
 const shareLinkInput = ref(null)
 const shareProgress = ref(0)
 const shareCode = ref('')
+const shareExpiresAt = ref(0)
 const sharedData = ref({
   question: '',
   decisionTree: null,
@@ -333,6 +334,13 @@ function setApiConfig(config) {
     console.error('Failed to save config:', error)
   }
 }
+
+// 计算剩余天数
+const remainingDays = computed(() => {
+  if (!shareExpiresAt.value) return 7
+  const remaining = shareExpiresAt.value - Date.now()
+  return Math.max(0, Math.ceil(remaining / (24 * 60 * 60 * 1000)))
+})
 
 const totalSteps = computed(() => {
   if (!decisionTree.value) return 0
@@ -501,6 +509,7 @@ function restart() {
   copied.value = false
   shareProgress.value = 0
   shareCode.value = ''
+  shareExpiresAt.value = 0
 }
 
 // 分享决策树
@@ -509,6 +518,7 @@ async function shareDecision() {
   shareProgress.value = 0
   shareCode.value = ''
   shareLink.value = ''
+  shareExpiresAt.value = 0
   
   try {
     // 1. 创建分享
@@ -521,7 +531,8 @@ async function shareDecision() {
         question: userQuestion.value,
         decisionTree: decisionTree.value,
         decisionPath: decisionPath.value,
-        finalResult: finalResult.value
+        finalResult: finalResult.value,
+        expirationDays: 7 // 默认7天过期
       })
     })
 
@@ -532,6 +543,7 @@ async function shareDecision() {
 
     const data = await response.json()
     shareCode.value = data.code
+    shareExpiresAt.value = data.expiresAt
     const baseUrl = window.location.origin
     const link = `${baseUrl}/share/${data.code}`
     
@@ -616,7 +628,11 @@ async function loadSharedDecision(code) {
     const response = await fetch(`/api/shares/${code}`)
     
     if (!response.ok) {
-      throw new Error('分享不存在/已过期/还未同步成功')
+      const error = await response.json()
+      if (response.status === 410) {
+        throw new Error('分享链接已过期')
+      }
+      throw new Error(error.error || '分享不存在/还未同步成功')
     }
 
     const data = await response.json()
